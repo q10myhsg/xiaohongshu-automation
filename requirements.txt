@@ -1,5 +1,4 @@
 Flask==2.3.2
-uiautomator2==2.16.11
-adb-shell==0.3.3
-Pillow==9.5.0
-requests==2.31.0
+uiautomator2==3.2.10 
+Pillow==10.4.0
+requests==2.27.1
