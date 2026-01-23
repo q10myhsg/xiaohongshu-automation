@@ -1,1081 +1,3 @@
-现在我为你生成完整的项目代码结构和实现。这是一个基于 **UIAutomator2 + Flask + HTML** 的小红书自动化工具。
-
-## 📁 项目完整结构
-
-```
-xiaohongshu-automation/
-├── app.py                      # Flask 主服务
-├── device_control.py           # 设备/养号核心逻辑
-├── config_manager.py           # 配置管理模块
-├── requirements.txt            # Python 依赖
-├── config/
-│   └── config.json             # 设备个性化配置
-├── static/
-│   └── style.css               # 前端样式
-├── templates/
-│   ├── index.html              # 入口/仪表板
-│   ├── device.html             # 设备管理
-│   ├── keyword. html            # 关键词管理
-│   ├── param.html              # 核心参数配置
-│   ├── visit.html              # 访问控制
-│   ├── interact.html           # 互动配置
-│   └── status.html             # 状态监控
-└── README.md                   # 项目说明
-```
-
----
-
-## 📝 核心文件实现
-
-### 1. **Flask 主服务** (`app.py`)
-
-```python name=app.py
-from flask import Flask, request, jsonify, render_template
-import json
-import threading
-import os
-from device_control import (
-    get_devices,
-    switch_device,
-    run_yanghao,
-    stop_yanghao,
-    device_status,
-    get_default_config
-)
-from config_manager import ConfigManager
-
-app = Flask(__name__, template_folder='templates', static_folder='static')
-
-# 初始化配置管理器
-config_manager = ConfigManager("config/config.json")
-current_device = {"device_id": None}
-
-# ==================== 页面路由 ====================
-@app. route("/")
-def index():
-    """主页仪表板"""
-    return render_template("index.html")
-
-@app.route("/device")
-def device_page():
-    """设备管理页面"""
-    return render_template("device.html")
-
-@app.route("/keyword")
-def keyword_page():
-    """关键词管理页面"""
-    return render_template("keyword. html")
-
-@app.route("/param")
-def param_page():
-    """核心参数页面"""
-    return render_template("param.html")
-
-@app.route("/visit")
-def visit_page():
-    """访问控制页面"""
-    return render_template("visit.html")
-
-@app.route("/interact")
-def interact_page():
-    """互动配置页面"""
-    return render_template("interact.html")
-
-@app.route("/status")
-def status_page():
-    """状态监控页面"""
-    return render_template("status.html")
-
-# ==================== API 接口 ====================
-
-@app.route("/api/devices", methods=["GET"])
-def api_devices():
-    """获取已连接设备列表"""
-    try:
-        devices = get_devices()
-        return jsonify({"success": True, "data": devices})
-    except Exception as e:
-        return jsonify({"success": False, "error":  str(e)})
-
-@app.route("/api/device/switch", methods=["POST"])
-def api_device_switch():
-    """切换设备"""
-    try: 
-        device_id = request.json.get("device_id")
-        if not device_id: 
-            return jsonify({"success":  False, "error": "设备ID不能为空"})
-        
-        # 如果有其他设备在运行，先停止
-        if current_device["device_id"]:
-            stop_yanghao(current_device["device_id"])
-        
-        result = switch_device(device_id)
-        if result: 
-            current_device["device_id"] = device_id
-            # 初始化新设备配置（如无则复制默认配置）
-            if not config_manager.get_config(device_id):
-                default_cfg = get_default_config()
-                config_manager.save_config(device_id, default_cfg)
-            return jsonify({"success": True, "message": f"已切换到设备:  {device_id}"})
-        else:
-            return jsonify({"success": False, "error":  "设备连接失败"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/config/<device_id>", methods=["GET"])
-def api_get_config(device_id):
-    """获取设备配置"""
-    try:
-        config = config_manager.get_config(device_id)
-        if not config:
-            config = get_default_config()
-        return jsonify({"success":  True, "data": config})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/config/<device_id>", methods=["PUT"])
-def api_save_config(device_id):
-    """保存设备配置"""
-    try:
-        config = request.json
-        config_manager.save_config(device_id, config)
-        return jsonify({"success": True, "message": "配置已保存"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/config/keywords/<device_id>", methods=["GET", "PUT"])
-def api_keywords(device_id):
-    """管理关键词"""
-    try:
-        if request.method == "GET": 
-            config = config_manager.get_config(device_id)
-            keywords = config.get("keywords", []) if config else []
-            return jsonify({"success": True, "data": keywords})
-        else:
-            keywords = request.json.get("keywords", [])
-            config = config_manager.get_config(device_id)
-            config["keywords"] = keywords
-            config_manager.save_config(device_id, config)
-            return jsonify({"success": True, "message": "关键词已更新"})
-    except Exception as e:
-        return jsonify({"success": False, "error":  str(e)})
-
-# ==================== 养号控制 ====================
-
-@app.route("/api/yanghao/start", methods=["POST"])
-def api_start_yanghao():
-    """启动养号"""
-    try: 
-        device_id = request. json.get("device_id") or current_device["device_id"]
-        if not device_id:
-            return jsonify({"success": False, "error": "未选择设备"})
-        
-        config = config_manager.get_config(device_id)
-        if not config:
-            return jsonify({"success": False, "error": "配置不完整"})
-        
-        if not config.get("keywords"):
-            return jsonify({"success": False, "error": "请先添加搜索关键词"})
-        
-        # 启动养号线程
-        threading.Thread(
-            target=run_yanghao,
-            args=(device_id, config),
-            daemon=True
-        ).start()
-        
-        return jsonify({"success": True, "message": "养号已启动"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/yanghao/stop", methods=["POST"])
-def api_stop_yanghao():
-    """停止养号"""
-    try: 
-        device_id = request.json.get("device_id") or current_device["device_id"]
-        if not device_id: 
-            return jsonify({"success": False, "error": "未选择设备"})
-        
-        stop_yanghao(device_id)
-        return jsonify({"success": True, "message": "已停止养号"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/yanghao/status/<device_id>")
-def api_status(device_id):
-    """获取养号状态"""
-    try:
-        status = device_status(device_id)
-        return jsonify({"success": True, "data": status})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/config/default", methods=["GET", "PUT"])
-def api_default_config():
-    """管理默认配置模板"""
-    try:
-        if request.method == "GET": 
-            default_cfg = config_manager.get_default_template()
-            return jsonify({"success": True, "data": default_cfg})
-        else:
-            cfg = request.json
-            config_manager.set_default_template(cfg)
-            return jsonify({"success":  True, "message": "默认模板已更新"})
-    except Exception as e:
-        return jsonify({"success": False, "error":  str(e)})
-
-# ==================== 错误处理 ====================
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({"success": False, "error": "请求不存在"}), 404
-
-@app.errorhandler(500)
-def server_error(error):
-    return jsonify({"success": False, "error": "服务器错误"}), 500
-
-if __name__ == '__main__':
-    # 确保配置文件存在
-    os.makedirs("config", exist_ok=True)
-    if not os.path.exists("config/config.json"):
-        with open("config/config.json", "w", encoding="utf-8") as f:
-            json.dump({}, f, indent=2, ensure_ascii=False)
-    
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
-```
-
----
-
-### 2. **设备控制 & 养号逻辑** (`device_control.py`)
-
-```python name=device_control.py
-import uiautomator2 as u2
-import random
-import time
-import logging
-from typing import Dict, List, Optional
-
-# 日志配置
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# 全局设备状态
-_devices_pool:  Dict[str, u2.Device] = {}
-_status:  Dict[str, dict] = {}
-_stop_flag: Dict[str, bool] = {}
-
-# ==================== 设备管理 ====================
-
-def get_devices() -> List[Dict]:
-    """获取已连接的ADB设备列表"""
-    try:
-        devices = u2.adb. device_list()
-        device_list = []
-        for device in devices:
-            # 尝试连接并获取设备信息
-            try:
-                d = u2.connect(device)
-                info = d.info
-                device_list.append({
-                    "id": device,
-                    "name": f"{info.get('model', 'Unknown')}({device})",
-                    "status":  "online"
-                })
-            except: 
-                device_list.append({
-                    "id": device,
-                    "name": device,
-                    "status": "offline"
-                })
-        return device_list
-    except Exception as e:
-        logger.error(f"获取设备列表失败: {e}")
-        return []
-
-def switch_device(device_id: str) -> bool:
-    """切换到指定设备"""
-    try:
-        if device_id in _devices_pool:
-            del _devices_pool[device_id]
-        
-        d = u2.connect(device_id)
-        _devices_pool[device_id] = d
-        _status[device_id] = {
-            "is_running": False,
-            "remain_time": 0,
-            "visited":  0,
-            "current_keyword": "",
-            "connection_status": "online"
-        }
-        _stop_flag[device_id] = False
-        logger.info(f"已连接设备: {device_id}")
-        return True
-    except Exception as e:
-        logger. error(f"连接设备失败: {e}")
-        return False
-
-def device_status(device_id: str) -> dict:
-    """获取设备状态"""
-    return _status.get(device_id, {
-        "is_running": False,
-        "remain_time": 0,
-        "visited": 0,
-        "connection_status": "offline"
-    })
-
-def stop_yanghao(device_id:  str):
-    """停止养号"""
-    _stop_flag[device_id] = True
-    logger.info(f"已请求停止设备 {device_id} 的养号")
-
-# ==================== 默认配置 ====================
-
-def get_default_config() -> dict:
-    """获取默认配置"""
-    return {
-        "keywords": ["科技资讯", "旅行攻略", "美食教程"],
-        "duration_minutes": 20,
-        "post_visit_ratio": 50,
-        "max_posts_per_run": 10,
-        "visit_control": {
-            "filter_image_text": True,
-            "duration_range": [25, 45],
-            "slide_interval": [3, 5],
-            "slide_distance":  "single_image"
-        },
-        "interaction": {
-            "like_prob": 15,
-            "collect_prob": 10,
-            "comment_prob": 5,
-            "comment_templates": [
-                "不错的分享！",
-                "学习了~",
-                "感谢分享",
-                "很有用的内容",
-                "已收藏学习"
-            ]
-        }
-    }
-
-# ==================== 养号主流程 ====================
-
-def run_yanghao(device_id: str, config: dict):
-    """执行养号流程"""
-    try:
-        if device_id not in _devices_pool:
-            logger.error(f"设备 {device_id} 未连接")
-            return
-        
-        d = _devices_pool[device_id]
-        total_time = config['duration_minutes'] * 60
-        visited = 0
-        max_posts = config['max_posts_per_run']
-        
-        _status[device_id] = {
-            "is_running": True,
-            "remain_time":  config['duration_minutes'],
-            "visited": 0,
-            "connection_status": "online"
-        }
-        
-        logger.info(f"开始养号 - 设备: {device_id}, 时长: {config['duration_minutes']}分钟")
-        
-        t0 = time.time()
-        
-        while time.time() - t0 < total_time and visited < max_posts:
-            if _stop_flag. get(device_id, False):
-                logger.info(f"养号已停止 - 设备: {device_id}")
-                break
-            
-            # 随机选择关键词
-            keywords = config. get('keywords', [])
-            if not keywords:
-                logger.warning("关键词列表为空")
-                break
-            
-            keyword = random.choice(keywords)
-            _status[device_id]["current_keyword"] = keyword
-            
-            # 打开小红书搜索框
-            logger.info(f"搜索关键词: {keyword}")
-            _search_and_visit_posts(d, keyword, config, device_id, total_time - (time.time() - t0))
-            
-            visited = _status[device_id]['visited']
-            remain_time = int((total_time - (time.time() - t0)) / 60)
-            _status[device_id]["remain_time"] = max(0, remain_time)
-            
-            # 长随机间隔（避免频繁操作）
-            wait_time = random.randint(30, 60)
-            logger.info(f"等待 {wait_time} 秒后继续")
-            time.sleep(wait_time)
-        
-        # 养号完成
-        logger.info(f"养号完成 - 设备: {device_id}, 访问帖子数: {visited}")
-        _status[device_id] = {
-            "is_running": False,
-            "remain_time": 0,
-            "visited": visited,
-            "connection_status":  "online"
-        }
-        _stop_flag[device_id] = False
-        
-    except Exception as e:
-        logger.error(f"养号异常 - 设备: {device_id}, 错误: {e}")
-        _status[device_id]["is_running"] = False
-
-def _search_and_visit_posts(d:  u2.Device, keyword: str, config: dict, device_id: str, remain_time: float):
-    """搜索并访问帖子"""
-    try: 
-        # 1. 打开搜索框 (需根据实际UI调整)
-        # 假设存在搜索按钮或搜索框
-        d.press("home")  # 回到首页
-        time.sleep(random.randint(2, 4))
-        
-        # 点击搜索框 - 示例选择器（需根据实际APP调整）
-        search_box = d(resourceId="com.xingin.xhs: id/search_bar", focusable=True)
-        if search_box. exists:
-            search_box. click()
-            time.sleep(random.randint(1, 2))
-        else:
-            logger.warning("搜索框未找到")
-            return
-        
-        # 2. 输入关键词
-        d. send_keys(keyword)
-        time.sleep(random.randint(1, 2))
-        
-        # 按搜索按钮或回车
-        d.press("enter")
-        time.sleep(random.randint(2, 4))
-        
-        # 3. 滚动并访问帖子
-        post_visit_ratio = config['post_visit_ratio'] / 100.0
-        max_posts = config['max_posts_per_run']
-        duration_range = config['visit_control']['duration_range']
-        
-        visited_count = 0
-        scroll_count = 0
-        max_scrolls = int(max_posts / post_visit_ratio) + 5
-        
-        while visited_count < max_posts and scroll_count < max_scrolls:
-            if _stop_flag.get(device_id, False):
-                break
-            
-            # 随机决定是否访问本帖子
-            if random.random() < post_visit_ratio:
-                # 点击第一个可见的帖子
-                posts = d(className="android.view.View")
-                if posts.exists:
-                    post_item = posts[0] if len(posts) > 0 else None
-                    if post_item:
-                        try:
-                            post_item.click()
-                            time.sleep(random.randint(2, 3))
-                            
-                            # 4. 访问帖子详情
-                            _visit_post_detail(d, config, device_id, duration_range)
-                            visited_count += 1
-                            _status[device_id]["visited"] = visited_count
-                            
-                            # 返回列表
-                            d.press("back")
-                            time.sleep(random.randint(2, 3))
-                        except Exception as e:
-                            logger.error(f"访问帖子失败: {e}")
-                            d.press("back")
-            
-            # 滑动到下一个帖子
-            d.swipe(500, 1000, 500, 300, duration=0.5)  # 上滑
-            time.sleep(random.randint(1, 3))
-            scroll_count += 1
-    
-    except Exception as e: 
-        logger.error(f"搜索访问失败: {e}")
-
-def _visit_post_detail(d: u2.Device, config: dict, device_id: str, duration_range: List[int]):
-    """访问帖子详情并执行互动"""
-    try:
-        # 随机访问时长
-        visit_duration = random.randint(duration_range[0], duration_range[1])
-        logger.info(f"访问帖子详情，预计停留 {visit_duration} 秒")
-        
-        visit_start = time.time()
-        slide_interval = config['visit_control']['slide_interval']
-        
-        # 5. 模拟浏览：随机滑动图片
-        while time.time() - visit_start < visit_duration:
-            if _stop_flag.get(device_id, False):
-                break
-            
-            # 每隔3-5秒滑动一次
-            wait_before_slide = random.randint(slide_interval[0], slide_interval[1])
-            time.sleep(min(wait_before_slide, visit_duration - (time.time() - visit_start)))
-            
-            if time.time() - visit_start < visit_duration:
-                # 上滑图片
-                d.swipe(500, 1000, 500, 300, duration=0.3)
-                time.sleep(random.randint(1, 2))
-        
-        # 6. 执行互动行为
-        interaction_cfg = config['interaction']
-        
-        # 点赞
-        if random.randint(1, 100) <= interaction_cfg['like_prob']:
-            _do_like(d)
-        
-        # 收藏
-        if random.randint(1, 100) <= interaction_cfg['collect_prob']: 
-            _do_collect(d)
-        
-        # 评论
-        if random.randint(1, 100) <= interaction_cfg['comment_prob']: 
-            comments = interaction_cfg['comment_templates']
-            comment_text = random.choice(comments)
-            _do_comment(d, comment_text)
-        
-    except Exception as e:
-        logger.error(f"访问帖子详情失败: {e}")
-
-def _do_like(d: u2.Device):
-    """执行点赞"""
-    try:
-        like_btn = d(resourceId="com.xingin.xhs:id/like_btn", clickable=True)
-        if like_btn.exists:
-            like_btn.click()
-            logger.info("已点赞")
-            time.sleep(random.randint(1, 2))
-    except Exception as e: 
-        logger.error(f"点赞失败: {e}")
-
-def _do_collect(d: u2.Device):
-    """执行收藏"""
-    try:
-        collect_btn = d(resourceId="com.xingin.xhs:id/collect_btn", clickable=True)
-        if collect_btn.exists:
-            collect_btn.click()
-            logger.info("已收藏")
-            time.sleep(random.randint(1, 2))
-    except Exception as e:
-        logger.error(f"收藏失败: {e}")
-
-def _do_comment(d: u2.Device, comment_text: str):
-    """执行评论"""
-    try:
-        comment_btn = d(resourceId="com.xingin.xhs:id/comment_btn", clickable=True)
-        if comment_btn.exists:
-            comment_btn.click()
-            time.sleep(random.randint(1, 2))
-            
-            comment_input = d(resourceId="com. xingin.xhs:id/comment_input_field")
-            if comment_input.exists:
-                comment_input.set_text(comment_text)
-                time.sleep(random.randint(1, 2))
-                
-                send_btn = d(resourceId="com.xingin.xhs:id/comment_send_btn", clickable=True)
-                if send_btn.exists:
-                    send_btn.click()
-                    logger.info(f"已评论: {comment_text}")
-                    time.sleep(random.randint(1, 2))
-    except Exception as e:
-        logger.error(f"评论失败: {e}")
-```
-
----
-
-### 3. **配置管理** (`config_manager.py`)
-
-```python name=config_manager.py
-import json
-import os
-from typing import Dict, Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
-class ConfigManager:
-    """配置文件管理类"""
-    
-    def __init__(self, config_path: str):
-        self.config_path = config_path
-        self.ensure_config_exists()
-    
-    def ensure_config_exists(self):
-        """确保配置文件存在"""
-        os.makedirs(os.path. dirname(self.config_path), exist_ok=True)
-        if not os.path.exists(self.config_path):
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json. dump({}, f, indent=2, ensure_ascii=False)
-    
-    def load_config(self) -> Dict:
-        """读取整个配置文件"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"读取配置文件失败: {e}")
-            return {}
-    
-    def save_config_file(self, data: Dict):
-        """保存整个配置文件"""
-        try:
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            logger.info("配置文件已保存")
-        except Exception as e: 
-            logger.error(f"保存配置文件失败:  {e}")
-    
-    def get_config(self, device_id: str) -> Optional[Dict]:
-        """获取指定设备的配置"""
-        config = self.load_config()
-        return config.get(device_id)
-    
-    def save_config(self, device_id: str, config: Dict):
-        """保存指定设备的配置"""
-        data = self.load_config()
-        data[device_id] = config
-        self.save_config_file(data)
-    
-    def get_default_template(self) -> Dict:
-        """获取默认配置模板"""
-        config = self.load_config()
-        return config.get("_default", self._create_default_template())
-    
-    def set_default_template(self, template: Dict):
-        """设置默认配置模板"""
-        config = self.load_config()
-        config["_default"] = template
-        self.save_config_file(config)
-    
-    def _create_default_template(self) -> Dict:
-        """创建默认模板"""
-        return {
-            "keywords": ["科技资讯", "旅行攻略", "美食教程"],
-            "duration_minutes": 20,
-            "post_visit_ratio": 50,
-            "max_posts_per_run": 10,
-            "visit_control": {
-                "filter_image_text": True,
-                "duration_range": [25, 45],
-                "slide_interval": [3, 5],
-                "slide_distance":  "single_image"
-            },
-            "interaction": {
-                "like_prob": 15,
-                "collect_prob": 10,
-                "comment_prob": 5,
-                "comment_templates": [
-                    "不错的分享！",
-                    "学习了~",
-                    "感谢分享"
-                ]
-            }
-        }
-```
-
----
-
-### 4. **前端样式** (`static/style.css`)
-
-```css name=static/style.css
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    background:  linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-    color: #333;
-}
-
-. container {
-    max-width:  1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
-
-/* 导航栏 */
-.navbar {
-    background: white;
-    padding: 0;
-    margin-bottom: 30px;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-
-.navbar-brand {
-    padding: 20px 30px;
-    font-size:  24px;
-    font-weight:  bold;
-    color: #667eea;
-}
-
-.navbar-nav {
-    display: flex;
-    list-style: none;
-    flex-wrap: wrap;
-}
-
-.nav-item {
-    border-bottom: 3px solid transparent;
-}
-
-.nav-link {
-    display: block;
-    padding: 15px 20px;
-    text-decoration: none;
-    color: #333;
-    transition:  all 0.3s ease;
-}
-
-.nav-link:hover,
-.nav-link.active {
-    color: #667eea;
-    border-bottom-color: #667eea;
-}
-
-/* 主内容区 */
-.main-content {
-    background: white;
-    border-radius: 10px;
-    padding: 30px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-}
-
-.page {
-    display: none;
-}
-
-.page.active {
-    display: block;
-    animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-/* 标题 */
-h1, h2, h3 {
-    color: #333;
-    margin-bottom: 20px;
-}
-
-h1 {
-    font-size: 32px;
-    border-bottom: 3px solid #667eea;
-    padding-bottom: 15px;
-}
-
-h2 {
-    font-size: 24px;
-    margin-top: 20px;
-}
-
-/* 表单元素 */
-. form-group {
-    margin-bottom: 20px;
-}
-
-label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight:  500;
-    color: #333;
-}
-
-input[type="text"],
-input[type="number"],
-textarea,
-select {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-size: 14px;
-    transition: border-color 0.3s ease;
-}
-
-input[type="text"]:focus,
-input[type="number"]:focus,
-textarea:focus,
-select:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-input[type="range"] {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: #ddd;
-    outline: none;
-    -webkit-appearance: none;
-}
-
-input[type="range"]: :-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #667eea;
-    cursor: pointer;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-input[type="range"]::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #667eea;
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-/* 按钮 */
-button, . btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition:  all 0.3s ease;
-    display: inline-block;
-    text-decoration: none;
-}
-
-. btn-primary {
-    background: #667eea;
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #5568d3;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.btn-success {
-    background: #48bb78;
-    color: white;
-}
-
-.btn-success:hover {
-    background: #38a169;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
-}
-
-.btn-danger {
-    background: #f56565;
-    color: white;
-}
-
-.btn-danger:hover {
-    background: #e53e3e;
-    transform:  translateY(-2px);
-    box-shadow: 0 4px 12px rgba(245, 101, 101, 0.4);
-}
-
-. btn-warning {
-    background:  #ed8936;
-    color: white;
-}
-
-.btn-warning:hover {
-    background: #dd6b20;
-}
-
-. btn-sm {
-    padding: 6px 12px;
-    font-size: 12px;
-}
-
-.btn-group {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-}
-
-/* 列表样式 */
-.list-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 15px;
-    border:  1px solid #eee;
-    border-radius:  5px;
-    margin-bottom: 10px;
-    background: #f9fafb;
-    transition: all 0.3s ease;
-}
-
-.list-item:hover {
-    background:  #f0f4ff;
-    border-color: #667eea;
-}
-
-.list-item-content {
-    flex: 1;
-}
-
-.list-item-text {
-    color: #333;
-    font-weight: 500;
-}
-
-. list-item-actions {
-    display: flex;
-    gap:  8px;
-}
-
-/* 状态卡片 */
-.status-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 20px;
-    border-radius: 10px;
-    margin-bottom: 20px;
-}
-
-.status-label {
-    font-size: 14px;
-    opacity: 0.9;
-    margin-bottom: 5px;
-}
-
-.status-value {
-    font-size: 24px;
-    font-weight: bold;
-}
-
-/* 设备选择框 */
-.device-selector {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 20px;
-}
-
-.device-option {
-    position: relative;
-}
-
-.device-option input[type="radio"] {
-    display: none;
-}
-
-.device-option label {
-    display:  block;
-    padding: 15px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    background: white;
-    margin-bottom: 0;
-}
-
-.device-option input[type="radio"]:checked + label {
-    border-color: #667eea;
-    background: #f0f4ff;
-    color: #667eea;
-}
-
-/* 进度条 */
-.progress {
-    width: 100%;
-    height:  10px;
-    background: #eee;
-    border-radius:  5px;
-    overflow:  hidden;
-    margin:  10px 0;
-}
-
-. progress-bar {
-    height:  100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
-    transition: width 0.3s ease;
-}
-
-/* 警告框 */
-.alert {
-    padding: 15px;
-    border-radius: 5px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.alert-info {
-    background: #e6f2ff;
-    border-left: 4px solid #2196F3;
-    color: #1565c0;
-}
-
-.alert-warning {
-    background: #fff3cd;
-    border-left: 4px solid #ffc107;
-    color: #856404;
-}
-
-.alert-danger {
-    background: #f8d7da;
-    border-left: 4px solid #dc3545;
-    color: #721c24;
-}
-
-. alert-success {
-    background:  #d4edda;
-    border-left: 4px solid #28a745;
-    color: #155724;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .container {
-        padding: 10px;
-    }
-    
-    .main-content {
-        padding: 15px;
-    }
-    
-    h1 {
-        font-size: 24px;
-    }
-    
-    . navbar-nav {
-        flex-direction: column;
-    }
-    
-    .device-selector {
-        grid-template-columns: 1fr;
-    }
-    
-    .btn-group {
-        flex-direction: column;
-    }
-    
-    button, .btn {
-        width: 100%;
-    }
-}
-```
-
----
-
-### 5. **HTML 页面** (主入口 - `templates/index.html`)
-
-```html name=templates/index.html
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1268,8 +190,8 @@ button, . btn {
                 <div class="form-group">
                     <label>点赞概率（%）</label>
                     <input type="range" id="like-prob" min="0" max="50" value="15">
-                    <div style="display: flex; justify-content:  space-between;">
-                        <span id="like-display" style="color: #667eea; font-weight:  bold;">15%</span>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span id="like-display" style="color: #667eea; font-weight: bold;">15%</span>
                         <small style="color: #666;">默认15%</small>
                     </div>
                 </div>
@@ -1278,8 +200,8 @@ button, . btn {
                     <label>收藏概率（%）</label>
                     <input type="range" id="collect-prob" min="0" max="50" value="10">
                     <div style="display: flex; justify-content: space-between;">
-                        <span id="collect-display" style="color: #667eea; font-weight:  bold;">10%</span>
-                        <small style="color:  #666;">默认10%</small>
+                        <span id="collect-display" style="color: #667eea; font-weight: bold;">10%</span>
+                        <small style="color: #666;">默认10%</small>
                     </div>
                 </div>
 
@@ -1305,321 +227,664 @@ button, . btn {
                 <button class="btn btn-success" onclick="saveInteraction()">💾 保存互动配置</button>
             </div>
 
-            <!-- 实时状态 -->
+            <!-- 状态监控 -->
             <div id="status" class="page">
-                <h1>📡 养号实时状态</h1>
-
-                <h2>设备连接状态</h2>
+                <h1>📈 实时状态监控</h1>
+                
+                <h2>设备状态</h2>
                 <div class="status-card">
                     <div class="status-label">连接状态</div>
-                    <div class="status-value" id="connection-status">🔴 离线</div>
+                    <div class="status-value" id="connection-status">未连接</div>
                 </div>
 
                 <h2>养号进度</h2>
                 <div class="status-card">
-                    <div class="status-label">运行状态</div>
-                    <div class="status-value" id="yangHao-running">⚪ 未运行</div>
+                    <div class="status-label">当前关键词</div>
+                    <div class="status-value" id="current-keyword">无</div>
                 </div>
-
-                <div class="status-card">
-                    <div class="status-label">剩余时间</div>
-                    <div class="status-value" id="yangHao-remain">0 分钟</div>
-                </div>
-
                 <div class="status-card">
                     <div class="status-label">已访问帖子</div>
-                    <div class="status-value" id="yangHao-visited">0</div>
+                    <div class="status-value" id="status-visited-count">0</div>
                 </div>
-
-                <h2>养号进度条</h2>
-                <div class="progress">
-                    <div class="progress-bar" id="yangHao-progress" style="width: 0%"></div>
-                </div>
-
-                <h2>当前操作</h2>
                 <div class="status-card">
-                    <div class="status-label">搜索关键词</div>
-                    <div class="status-value" id="current-keyword">-</div>
+                    <div class="status-label">剩余时间</div>
+                    <div class="status-value" id="status-remain-time">0 分钟</div>
                 </div>
 
                 <h2>操作</h2>
-                <button class="btn btn-primary" onclick="autoRefreshStatus()" style="margin-bottom: 15px;">🔄 自动刷新状态（每3秒）</button>
-                <button class="btn btn-warning" onclick="stopAutoRefresh()">⏸️ 停止自动刷新</button>
-
-                <h2>实时日志</h2>
-                <div id="status-log" style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px;">
-                    <div style="color: #666;">等待日志输出...</div>
-                </div>
+                <button class="btn btn-primary" onclick="refreshStatus()">🔄 刷新状态</button>
             </div>
-
         </div>
     </div>
 
+    <!-- JavaScript -->
     <script>
-        let currentDevice = null;
-        let autoRefreshInterval = null;
-        let operationLog = [];
+        // 全局变量
+        let currentDeviceId = null;
+        let currentDeviceName = "未选择";
 
-        // ==================== 页面切换 ====================
-        function showPage(pageName) {
+        // 页面切换
+        function showPage(pageId) {
             // 隐藏所有页面
             document.querySelectorAll('.page').forEach(page => {
                 page.classList.remove('active');
             });
-            
             // 显示选中页面
-            document.getElementById(pageName).classList.add('active');
-            
-            // 更新导航栏活跃状态
+            document.getElementById(pageId).classList.add('active');
+            // 更新导航栏状态
             document.querySelectorAll('.nav-link').forEach(link => {
                 link.classList.remove('active');
             });
             event.target.classList.add('active');
             
-            // 进入页面时刷新数据
-            if (pageName === 'device') {
-                refreshDevices();
-            } else if (pageName === 'keyword') {
-                loadKeywords();
-            } else if (pageName === 'param') {
-                loadParams();
-            } else if (pageName === 'visit') {
-                loadVisitControl();
-            } else if (pageName === 'interact') {
-                loadInteraction();
-            } else if (pageName === 'status') {
-                loadStatus();
-            } else if (pageName === 'dashboard') {
-                refreshStatus();
+            // 加载对应页面的数据
+            switch (pageId) {
+                case 'device':
+                    // 切换到设备管理页面时，无论是否选择了设备，都刷新设备列表
+                    refreshDevices();
+                    break;
+                case 'keyword':
+                    if (currentDeviceId) refreshKeywords();
+                    break;
+                case 'interact':
+                    if (currentDeviceId) loadCommentTemplates();
+                    break;
+                case 'param':
+                    if (currentDeviceId) loadParams();
+                    break;
+                case 'visit':
+                    if (currentDeviceId) loadVisitControl();
+                    break;
             }
         }
 
-        // ==================== 日志管理 ====================
-        function addLog(message) {
-            const timestamp = new Date().toLocaleTimeString('zh-CN');
-            operationLog.unshift(`[${timestamp}] ${message}`);
-            if (operationLog.length > 50) operationLog.pop();
-            
-            // 更新日志显示
-            let logHtml = '';
-            operationLog.forEach(log => {
-                logHtml += `<div>${log}</div>`;
-            });
-            const logElement = document.getElementById('log-list');
-            if (logElement) {
-                logElement.innerHTML = logHtml || '<div class="alert alert-info">暂无日志</div>';
-            }
-        }
-
-        // ==================== 设备管理 ====================
+        // 刷新设备列表
         function refreshDevices() {
+            console.log('开始刷新设备列表...');
             fetch('/api/devices')
-                .then(r => r.json())
+                .then(response => response.json())
                 .then(data => {
+                    console.log('获取设备列表结果:', data);
                     if (data.success) {
-                        renderDeviceList(data.data);
-                        addLog('已刷新设备列表');
+                        const deviceList = document.getElementById('device-list');
+                        deviceList.innerHTML = '';
+                        
+                        if (data.data.length === 0) {
+                            deviceList.innerHTML = '<div class="alert alert-info">暂无已连接的设备，请检查ADB连接</div>';
+                        } else {
+                            data.data.forEach(device => {
+                                const deviceOption = document.createElement('div');
+                                deviceOption.className = 'device-option';
+                                deviceOption.innerHTML = `
+                                    <input type="radio" id="device-${device.id}" name="device" value="${device.id}">
+                                    <label for="device-${device.id}">
+                                        <strong>${device.name}</strong><br>
+                                        <small>状态: ${device.status}</small>
+                                    </label>
+                                `;
+                                deviceList.appendChild(deviceOption);
+                            });
+                        }
                     } else {
-                        alert('错误:  ' + data.error);
+                        alert('获取设备列表失败: ' + data.error);
                     }
                 })
-                .catch(err => {
-                    alert('获取设备列表失败:  ' + err.message);
-                    addLog('❌ 获取设备列表失败');
+                .catch(error => {
+                    console.error('网络错误:', error);
+                    alert('网络错误: ' + error.message);
                 });
         }
 
-        function renderDeviceList(devices) {
-            const listHtml = devices.map(device => `
-                <div class="device-option">
-                    <input type="radio" name="device" id="dev-${device.id}" value="${device.id}" ${currentDevice === device.id ? 'checked' : ''}>
-                    <label for="dev-${device.id}">
-                        <strong>${device.name}</strong><br>
-                        <small style="opacity: 0.7;">${device.status}</small>
-                    </label>
-                </div>
-            `).join('');
-            document.getElementById('device-list').innerHTML = listHtml;
-        }
-
+        // 切换设备
         function switchDevice() {
-            const selected = document.querySelector('input[name="device"]: checked');
-            if (!selected) {
-                alert('请先选择一个设备');
+            const selectedDevice = document.querySelector('input[name="device"]:checked');
+            if (!selectedDevice) {
+                alert('请选择一个设备');
                 return;
             }
-
-            const deviceId = selected.value;
+            const deviceId = selectedDevice.value;
             fetch('/api/device/switch', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({ device_id: deviceId })
             })
-            .then(r => r.json())
+            .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    currentDevice = deviceId;
-                    document.getElementById('current-device-name').textContent = selected.labels[0]. textContent. split('\n')[0];
+                    currentDeviceId = deviceId;
+                    currentDeviceName = selectedDevice.nextElementSibling.querySelector('strong').textContent;
+                    document.getElementById('current-device-name').textContent = currentDeviceName;
                     alert(data.message);
-                    addLog(`✓ 已切换到设备:  ${deviceId}`);
+                    
+                    // 加载设备配置数据
+                    loadDeviceConfig();
                 } else {
-                    alert('错误: ' + data.error);
-                    addLog(`❌ 设备切换失败: ${data.error}`);
+                    alert('切换设备失败: ' + data.error);
                 }
             })
-            .catch(err => {
-                alert('切换设备失败: ' + err.message);
-                addLog('❌ 切换设备异常');
+            .catch(error => {
+                alert('网络错误: ' + error.message);
             });
         }
-
-        // ==================== 关键词管理 ====================
-        function loadKeywords() {
-            if (! currentDevice) {
-                alert('请先在设备管理页面选择设备');
-                return;
-            }
-
-            fetch(`/api/config/keywords/${currentDevice}`)
-                .then(r => r.json())
+        
+        // 加载设备配置数据
+        function loadDeviceConfig() {
+            if (!currentDeviceId) return;
+            
+            // 加载关键词
+            refreshKeywords();
+            
+            // 加载评论模板
+            loadCommentTemplates();
+            
+            // 加载核心参数
+            loadParams();
+            
+            // 加载访问控制配置
+            loadVisitControl();
+        }
+        
+        // 加载核心参数
+        function loadParams() {
+            if (!currentDeviceId) return;
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
-                        renderKeywordList(data.data);
+                    if (data.success && data.data) {
+                        const config = data.data;
+                        // 更新核心参数表单
+                        document.getElementById('duration-minutes').value = config.duration_minutes || 20;
+                        document.getElementById('post-visit-ratio').value = config.post_visit_ratio || 50;
+                        document.getElementById('ratio-display').textContent = (config.post_visit_ratio || 50) + '%';
+                        document.getElementById('max-posts').value = config.max_posts_per_run || 10;
                     }
                 })
-                .catch(err => console.error(err));
+                .catch(error => {
+                    console.error('加载核心参数失败:', error);
+                });
+        }
+        
+        // 加载访问控制配置
+        function loadVisitControl() {
+            if (!currentDeviceId) return;
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data && data.data.visit_control) {
+                        const visitControl = data.data.visit_control;
+                        // 更新访问控制表单
+                        document.getElementById('filter-image-text').checked = visitControl.filter_image_text || true;
+                        document.getElementById('duration-min').value = visitControl.duration_range ? visitControl.duration_range[0] : 25;
+                        document.getElementById('duration-max').value = visitControl.duration_range ? visitControl.duration_range[1] : 45;
+                        document.getElementById('slide-distance').value = visitControl.slide_distance || 'single_image';
+                    }
+                })
+                .catch(error => {
+                    console.error('加载访问控制配置失败:', error);
+                });
         }
 
-        function renderKeywordList(keywords) {
-            const listHtml = keywords.map((kw, idx) => `
-                <div class="list-item">
-                    <div class="list-item-content">
-                        <div class="list-item-text">${kw}</div>
-                    </div>
-                    <div class="list-item-actions">
-                        <button class="btn btn-danger btn-sm" onclick="deleteKeyword(${idx})">🗑️ 删除</button>
-                    </div>
-                </div>
-            `).join('');
-            document.getElementById('keyword-list').innerHTML = listHtml || '<p style="color: #666;">还没有添加任何关键词</p>';
+        // 刷新关键词列表
+        function refreshKeywords() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            fetch(`/api/config/keywords/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const keywordList = document.getElementById('keyword-list');
+                        keywordList.innerHTML = '';
+                        data.data.forEach(keyword => {
+                            const listItem = document.createElement('div');
+                            listItem.className = 'list-item';
+                            listItem.innerHTML = `
+                                <div class="list-item-content">
+                                    <div class="list-item-text">${keyword}</div>
+                                </div>
+                                <div class="list-item-actions">
+                                    <button class="btn btn-sm btn-danger" onclick="deleteKeyword('${keyword}')">删除</button>
+                                </div>
+                            `;
+                            keywordList.appendChild(listItem);
+                        });
+                    } else {
+                        alert('获取关键词列表失败: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
+                });
         }
 
+        // 添加关键词
         function addKeyword() {
-            const input = document.getElementById('new-keyword');
-            const keyword = input. value.trim();
-            
-            if (!keyword) {
+            const newKeyword = document.getElementById('new-keyword').value.trim();
+            if (!newKeyword) {
                 alert('请输入关键词');
                 return;
             }
-            
-            if (! currentDevice) {
+            if (!currentDeviceId) {
                 alert('请先选择设备');
                 return;
             }
-
-            // 获取当前关键词列表
-            fetch(`/api/config/${currentDevice}`)
-                .then(r => r.json())
+            // 先获取现有关键词列表
+            fetch(`/api/config/keywords/${currentDeviceId}`)
+                .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        const keywords = data.data.keywords || [];
-                        if (keywords.includes(keyword)) {
-                            alert('该关键词已存在');
+                        const keywords = data.data;
+                        // 检查关键词是否已存在
+                        if (keywords.includes(newKeyword)) {
+                            alert('关键词已存在');
                             return;
                         }
-                        keywords.push(keyword);
-                        
-                        // 保存
-                        data.data.keywords = keywords;
-                        fetch(`/api/config/${currentDevice}`, {
+                        // 添加新关键词
+                        keywords.push(newKeyword);
+                        // 保存完整列表
+                        return fetch(`/api/config/keywords/${currentDeviceId}`, {
                             method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data.data)
-                        })
-                        .then(r => r.json())
-                        .then(res => {
-                            if (res.success) {
-                                input.value = '';
-                                loadKeywords();
-                                addLog(`✓ 已添加关键词: ${keyword}`);
-                            }
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ keywords: keywords })
                         });
+                    } else {
+                        throw new Error('获取关键词列表失败');
                     }
                 })
-                .catch(err => console.error(err));
-        }
-
-        function deleteKeyword(idx) {
-            if (! currentDevice) return;
-            
-            fetch(`/api/config/${currentDevice}`)
-                .then(r => r.json())
+                .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        const keywords = data.data.keywords || [];
-                        const deleted = keywords.splice(idx, 1)[0];
-                        
-                        data.data.keywords = keywords;
-                        fetch(`/api/config/${currentDevice}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data.data)
-                        })
-                        .then(r => r.json())
-                        .then(res => {
-                            if (res.success) {
-                                loadKeywords();
-                                addLog(`✓ 已删除关键词: ${deleted}`);
-                            }
-                        });
+                        refreshKeywords();
+                        document.getElementById('new-keyword').value = '';
+                        alert('关键词添加成功');
+                    } else {
+                        alert('添加关键词失败: ' + data.error);
                     }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
                 });
         }
 
+        // 批量导入关键词
         function importKeywords() {
-            const text = document.getElementById('keywords-import').value;
-            const keywords = text.split('\n').map(k => k.trim()).filter(k => k);
-            
-            if (keywords.length === 0) {
-                alert('请输入至少一个关键词');
+            const importText = document.getElementById('keywords-import').value.trim();
+            if (!importText) {
+                alert('请输入关键词');
                 return;
             }
-
-            if (!currentDevice) {
+            if (!currentDeviceId) {
                 alert('请先选择设备');
                 return;
             }
+            const keywords = importText.split('\n').map(line => line.trim()).filter(line => line);
+            fetch(`/api/config/keywords/${currentDeviceId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ keywords: keywords })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    refreshKeywords();
+                    document.getElementById('keywords-import').value = '';
+                    alert('关键词导入成功');
+                } else {
+                    alert('导入关键词失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('网络错误: ' + error.message);
+            });
+        }
 
-            fetch(`/api/config/${currentDevice}`)
-                .then(r => r.json())
+        // 删除关键词
+        function deleteKeyword(keyword) {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            fetch(`/api/config/keywords/${currentDeviceId}`)
+                .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        const currentKeywords = data.data.keywords || [];
-                        const newKeywords = keywords.filter(k => !currentKeywords.includes(k));
-                        
-                        if (newKeywords.length === 0) {
-                            alert('所有关键词都已存在');
-                            return;
-                        }
-                        
-                        currentKeywords.push(...newKeywords);
-                        data.data.keywords = currentKeywords;
-                        
-                        fetch(`/api/config/${currentDevice}`, {
+                        const keywords = data.data.filter(k => k !== keyword);
+                        return fetch(`/api/config/keywords/${currentDeviceId}`, {
                             method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data.data)
-                        })
-                        .then(r => r.json())
-                        .then(res => {
-                            if (res.success) {
-                                document.getElementById('keywords-import').value = '';
-                                loadKeywords();
-                                addLog(`✓ 已导入 ${newKeywords.length} 个新关键词`);
-                            }
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ keywords: keywords })
                         });
+                    } else {
+                        throw new Error('获取关键词列表失败');
                     }
                 })
-                .catch(err => console.error(err));
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        refreshKeywords();
+                    } else {
+                        alert('删除关键词失败: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
+                });
         }
+
+        // 保存核心参数
+        function saveParams() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            const params = {
+                duration_minutes: parseInt(document.getElementById('duration-minutes').value),
+                post_visit_ratio: parseInt(document.getElementById('post-visit-ratio').value),
+                max_posts_per_run: parseInt(document.getElementById('max-posts').value)
+            };
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const config = { ...data.data, ...params };
+                        return fetch(`/api/config/${currentDeviceId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(config)
+                        });
+                    } else {
+                        throw new Error('获取配置失败');
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('参数保存成功');
+                    } else {
+                        alert('保存参数失败: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
+                });
+        }
+
+        // 保存访问控制配置
+        function saveVisitControl() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            const visitControl = {
+                filter_image_text: document.getElementById('filter-image-text').checked,
+                duration_range: [
+                    parseInt(document.getElementById('duration-min').value),
+                    parseInt(document.getElementById('duration-max').value)
+                ],
+                slide_interval: [3, 5], // 默认值
+                slide_distance: document.getElementById('slide-distance').value
+            };
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const config = { ...data.data, visit_control: visitControl };
+                        return fetch(`/api/config/${currentDeviceId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(config)
+                        });
+                    } else {
+                        throw new Error('获取配置失败');
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('访问控制配置保存成功');
+                    } else {
+                        alert('保存访问控制配置失败: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
+                });
+        }
+
+        // 评论模板管理
+        let commentTemplates = ['不错的分享！', '学习了~', '感谢分享', '很有用的内容', '已收藏学习'];
+
+        // 加载评论模板
+        function loadCommentTemplates() {
+            if (!currentDeviceId) return;
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data && data.data.interaction) {
+                        commentTemplates = data.data.interaction.comment_templates || commentTemplates;
+                        renderCommentTemplates();
+                    }
+                })
+                .catch(error => {
+                    console.error('加载评论模板失败:', error);
+                });
+        }
+
+        // 渲染评论模板列表
+        function renderCommentTemplates() {
+            const listContainer = document.getElementById('comment-templates-list');
+            listContainer.innerHTML = '';
+            
+            if (commentTemplates.length === 0) {
+                listContainer.innerHTML = '<div style="color: #999; padding: 20px;">暂无评论模板，请添加</div>';
+                return;
+            }
+            
+            commentTemplates.forEach((template, index) => {
+                const listItem = document.createElement('div');
+                listItem.className = 'list-item';
+                listItem.innerHTML = `
+                    <div class="list-item-content">
+                        <div class="list-item-text">${template}</div>
+                    </div>
+                    <div class="list-item-actions">
+                        <button class="btn btn-sm btn-danger" onclick="deleteCommentTemplate(${index})">删除</button>
+                    </div>
+                `;
+                listContainer.appendChild(listItem);
+            });
+        }
+
+        // 添加评论模板
+        function addCommentTemplate() {
+            const newTemplate = document.getElementById('new-template').value.trim();
+            if (!newTemplate) {
+                alert('请输入评论模板');
+                return;
+            }
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            
+            // 检查是否重复
+            if (commentTemplates.includes(newTemplate)) {
+                alert('评论模板已存在');
+                return;
+            }
+            
+            commentTemplates.push(newTemplate);
+            renderCommentTemplates();
+            document.getElementById('new-template').value = '';
+            alert('评论模板添加成功');
+        }
+
+        // 删除评论模板
+        function deleteCommentTemplate(index) {
+            if (commentTemplates.length <= 1) {
+                alert('至少需要保留一条评论模板');
+                return;
+            }
+            commentTemplates.splice(index, 1);
+            renderCommentTemplates();
+        }
+
+        // 保存互动配置
+        function saveInteraction() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            if (commentTemplates.length === 0) {
+                alert('请至少添加一条评论模板');
+                return;
+            }
+            const interaction = {
+                like_prob: parseInt(document.getElementById('like-prob').value),
+                collect_prob: parseInt(document.getElementById('collect-prob').value),
+                comment_prob: parseInt(document.getElementById('comment-prob').value),
+                comment_templates: commentTemplates
+            };
+            fetch(`/api/config/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const config = { ...data.data, interaction: interaction };
+                        return fetch(`/api/config/${currentDeviceId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(config)
+                        });
+                    } else {
+                        throw new Error('获取配置失败');
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('互动配置保存成功');
+                    } else {
+                        alert('保存互动配置失败: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('网络错误: ' + error.message);
+                });
+        }
+
+        // 启动养号
+        function startYangHao() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            fetch('/api/yanghao/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ device_id: currentDeviceId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('养号已启动');
+                    setInterval(refreshStatus, 5000); // 每5秒刷新一次状态
+                } else {
+                    alert('启动养号失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('网络错误: ' + error.message);
+            });
+        }
+
+        // 停止养号
+        function stopYangHao() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            fetch('/api/yanghao/stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ device_id: currentDeviceId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('养号已停止');
+                    refreshStatus();
+                } else {
+                    alert('停止养号失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('网络错误: ' + error.message);
+            });
+        }
+
+        // 刷新状态
+        function refreshStatus() {
+            if (!currentDeviceId) {
+                return;
+            }
+            fetch(`/api/yanghao/status/${currentDeviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const status = data.data;
+                        // 更新仪表板状态
+                        document.getElementById('running-status').textContent = status.is_running ? '🟢 运行中' : '⚪ 未运行';
+                        document.getElementById('visited-count').textContent = status.visited || 0;
+                        document.getElementById('remain-time').textContent = (status.remain_time || 0) + ' 分钟';
+                        // 更新状态页面
+                        document.getElementById('connection-status').textContent = status.connection_status || '未连接';
+                        document.getElementById('current-keyword').textContent = status.current_keyword || '无';
+                        document.getElementById('status-visited-count').textContent = status.visited || 0;
+                        document.getElementById('status-remain-time').textContent = (status.remain_time || 0) + ' 分钟';
+                    }
+                })
+                .catch(error => {
+                    console.error('刷新状态失败:', error);
+                });
+        }
+
+        // 保存关键词
+        function saveKeywords() {
+            if (!currentDeviceId) {
+                alert('请先选择设备');
+                return;
+            }
+            // 刷新关键词列表，确保显示最新的关键词
+            refreshKeywords();
+            alert('关键词已保存');
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            // 刷新设备列表
+            refreshDevices();
+            // 刷新状态
+            refreshStatus();
+        };
+    </script>
+</body>
+</html>

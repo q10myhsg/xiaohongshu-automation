@@ -1,0 +1,66 @@
+{
+  "_default": {
+    "keywords": [
+      "四年级寒假数学",
+      "四年级寒假语文",
+      "四年级寒假英语"
+    ],
+    "duration_minutes": 20,
+    "post_visit_ratio": 50,
+    "max_posts_per_run": 10,
+    "visit_control": {
+      "filter_image_text": true,
+      "duration_range": [
+        25,
+        45
+      ],
+      "slide_interval": [
+        3,
+        5
+      ],
+      "slide_distance": "single_image"
+    },
+    "interaction": {
+      "like_prob": 15,
+      "collect_prob": 10,
+      "comment_prob": 5,
+      "comment_templates": [
+        "不错的分享！",
+        "学习了~",
+        "感谢分享",
+        "很有用的内容",
+        "已收藏学习"
+      ]
+    }
+  },
+  "779baf23": {
+    "duration_minutes": 30,
+    "interaction": {
+      "like_prob": 100,
+      "collect_prob": 100,
+      "comment_prob": 100,
+      "comment_templates": [
+        "不错不错，学习了~",
+        "赞赞赞，真的很不错"
+      ]
+    },
+    "keywords": [
+      "四上数学",
+      "四上寒假"
+    ],
+    "max_posts_per_run": 30,
+    "post_visit_ratio": 50,
+    "visit_control": {
+      "duration_range": [
+        30,
+        45
+      ],
+      "filter_image_text": true,
+      "slide_distance": "single_image",
+      "slide_interval": [
+        3,
+        5
+      ]
+    }
+  }
+}
