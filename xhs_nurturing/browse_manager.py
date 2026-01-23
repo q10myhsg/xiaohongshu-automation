@@ -357,8 +357,8 @@ class BrowseManager:
             # 找到搜索结果中的笔记卡片
             recycler_view = device(className="androidx.recyclerview.widget.RecyclerView")
             if recycler_view.exists:
-                # 尝试从RecyclerView中找到帖子
-                notes = recycler_view.child(className="android.widget.FrameLayout")
+                # 尝试从RecyclerView中找到帖子的图片
+                notes = recycler_view.child(className="android.widget.ImageView")
                 if notes.exists:
                     # 尝试获取所有可见的笔记
                     note_list = []
@@ -444,8 +444,8 @@ class BrowseManager:
             interaction_manager.view_image_note_with_interaction(device, config)
             
             # 执行互动行为（点赞、收藏、评论）
-            self.logger.info("执行互动行为")
-            interaction_manager.do_interaction(device, config)
+            # self.logger.info("执行互动行为")
+            # interaction_manager.do_interaction(device, config)
             
         except Exception as e:
             self.logger.error(f"访问帖子详情失败: {e}")

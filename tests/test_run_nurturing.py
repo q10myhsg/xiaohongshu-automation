@@ -50,13 +50,13 @@ def test_run_nurturing():
     logger.info(f"设备初始状态: {status}")
     
     # 临时更新设备关键词，添加指定的关键词
-    logger.info("更新设备关键词...")
-    test_keywords = ["四上数学", "四上寒假"]
-    keyword_update_result = nurturing_manager.update_keywords(device_id, test_keywords)
-    if keyword_update_result:
-        logger.info(f"关键词更新成功: {test_keywords}")
-    else:
-        logger.warning("关键词更新失败，使用默认关键词")
+    # logger.info("更新设备关键词...")
+    # test_keywords = ["四上数学", "四上寒假"]
+    # keyword_update_result = nurturing_manager.update_keywords(device_id, test_keywords)
+    # if keyword_update_result:
+    #     logger.info(f"关键词更新成功: {test_keywords}")
+    # else:
+    #     logger.warning("关键词更新失败，使用默认关键词")
     
     # 启动养号
     logger.info("启动养号测试...")

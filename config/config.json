@@ -34,26 +34,67 @@
     }
   },
   "779baf23": {
-    "duration_minutes": 30,
+    "duration_minutes": 60,
     "interaction": {
-      "like_prob": 100,
-      "collect_prob": 100,
-      "comment_prob": 100,
+      "like_prob": 40,
+      "collect_prob": 30,
+      "comment_prob": 5,
       "comment_templates": [
         "不错不错，学习了~",
-        "赞赞赞，真的很不错"
+        "赞赞赞，真的很不错",
+        "感谢分享",
+        "很有用的内容",
+        "已收藏学习"
       ]
     },
     "keywords": [
-      "四上数学",
-      "四上寒假"
+      "四上数学寒假作业",
+      "四上寒假预习单人教",
+      "四上寒假预习单人教答案",
+      "四上寒假每日一练",
+      "四上寒假每日一练数学人教"
     ],
     "max_posts_per_run": 30,
-    "post_visit_ratio": 50,
+    "post_visit_ratio": 20,
     "visit_control": {
       "duration_range": [
         30,
-        45
+        60
+      ],
+      "filter_image_text": true,
+      "slide_distance": "single_image",
+      "slide_interval": [
+        3,
+        5
+      ]
+    }
+  },
+  "de78def7": {
+    "duration_minutes": 60,
+    "interaction": {
+      "like_prob": 40,
+      "collect_prob": 30,
+      "comment_prob": 5,
+      "comment_templates": [
+        "不错不错，学习了~",
+        "赞赞赞，真的很不错",
+        "感谢分享",
+        "很有用的内容",
+        "已收藏学习"
+      ]
+    },
+    "keywords": [
+      "四年级语文寒假作业",
+      "四年级寒假语文学霸",
+      "四年级寒假预习",
+      "四年级寒假语文每日一练"
+    ],
+    "max_posts_per_run": 30,
+    "post_visit_ratio": 20,
+    "visit_control": {
+      "duration_range": [
+        30,
+        60
       ],
       "filter_image_text": true,
       "slide_distance": "single_image",
