@@ -149,7 +149,7 @@ class BrowseManager:
                 scroll_count += 1
             
             self.logger.info(f"关键词 {keyword} 浏览完成，共访问 {visited_count} 个帖子")
-            return True
+            return visited_count
         except Exception as e:
             self.logger.error(f"搜索浏览失败: {e}")
             return False

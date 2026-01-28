@@ -39,7 +39,6 @@ class InteractionManager:
         """
         try:
             rand= random.random()
-            self.logger.info(f"当前点赞随机概率: {rand}")
             like_probability = config.get('interaction', {}).get('like_prob', 50.0) if config else 50.0
             if rand< like_probability/100.0:
                 # 如果没有传入image_container，尝试查找
@@ -314,14 +313,27 @@ class InteractionManager:
                     num_images_to_view = random.randint(min_swipe, max_swipe)
                     self.logger.info(f"随机选择浏览 {num_images_to_view+1} 张图片")
                     
-                    for i in range(num_images_to_view):
-                        # 从右向左滑动（查看下一张），使用图片容器的边界信息
-                        start_x = image_bounds['left'] + image_width * random.uniform(0.6, 0.8)
-                        end_x = image_bounds['left'] + image_width * random.uniform(0.2, 0.4)
-                        y = image_bounds['top'] + image_height * random.uniform(0.4, 0.6)
-                        device.swipe(start_x, y, end_x, y, duration=0.1)
-                        self.logger.info(f"向左滑动浏览第{i+2}张图片")
-                        random_delay(2, 7)
+                    i = 0
+                    while i < num_images_to_view:
+                        # 20%的概率向左滑动（查看上一张）
+                        if random.random() < 0.1 and i > 0:
+                            # 从左向右滑动（查看上一张）
+                            start_x = image_bounds['left'] + image_width * random.uniform(0.2, 0.4)
+                            end_x = image_bounds['left'] + image_width * random.uniform(0.6, 0.8)
+                            y = image_bounds['top'] + image_height * random.uniform(0.4, 0.6)
+                            device.swipe(start_x, y, end_x, y, duration=0.1)
+                            self.logger.info(f"向右滑动浏览第{i+1}张图片")
+                            random_delay(2, 7)
+                            i -= 1
+                        else:
+                            # 从右向左滑动（查看下一张），使用图片容器的边界信息
+                            start_x = image_bounds['left'] + image_width * random.uniform(0.6, 0.8)
+                            end_x = image_bounds['left'] + image_width * random.uniform(0.2, 0.4)
+                            y = image_bounds['top'] + image_height * random.uniform(0.4, 0.6)
+                            device.swipe(start_x, y, end_x, y, duration=0.1)
+                            self.logger.info(f"向左滑动浏览第{i+2}张图片")
+                            random_delay(2, 7)
+                            i += 1
                 else:
                     self.logger.warning(f"滑动范围无效: min={min_swipe}, max={max_swipe}")
             else:
@@ -346,6 +358,56 @@ class InteractionManager:
             self.logger.error(f"获取屏幕尺寸失败: {e}")
             return 1080, 1920
     
+    def _visit_user_homepage(self, device):
+        """
+        访问用户主页并向上滑动
+        :param device: 设备实例
+        :return: 是否访问成功
+        """
+        try:
+            # 查找用户头像或用户名
+            user_elements = [
+                device(className="android.widget.TextView", resourceId="com.xingin.xhs:id/nickNameTV"),
+            ]
+            
+            if not user_elements or len(user_elements) == 0: 
+                self.logger.warning("未找到用户信息元素")
+                return False
+            
+            user_element = user_elements[0]
+            # 点击进入用户主页
+            if safe_click(device, user_element):
+                self.logger.info("进入用户主页")
+                random_delay(2, 4)
+                
+                # 向上滑动2-3次
+                screen_width, screen_height = self._get_screen_size(device)
+                scroll_times = random.randint(2, 3)
+                for i in range(scroll_times):
+                    # 向上滚动
+                    start_y = screen_height * random.uniform(0.7, 0.9)
+                    end_y = screen_height * random.uniform(0.1, 0.3)
+                    x = screen_width * random.uniform(0.4, 0.6)
+                    device.swipe(x, start_y, x, end_y, duration=0.2)
+                    self.logger.info(f"在用户主页向上滑动 {i+1}/{scroll_times}")
+                    random_delay(1, 2)
+                
+                # 返回帖子页面
+                device.press("back")
+                self.logger.info("返回帖子页面")
+                random_delay(0.5, 2)
+                return True
+            else:
+                self.logger.warning("点击用户信息失败")
+                return False
+        except Exception as e:
+            self.logger.error(f"访问用户主页失败: {e}")
+            try:
+                device.press("back")
+            except:
+                pass
+            return False
+    
     def view_image_note_with_interaction(self, device, config):
         """
         浏览图片笔记并执行互动操作
@@ -353,7 +415,11 @@ class InteractionManager:
         :param config: 配置字典
         :return: 是否为图片笔记
         """
+        import time
         try:
+            # 记录开始时间
+            start_time = time.time()
+            
             # 查找图片容器
             image_container = self._find_image_container(device)
             if not image_container:
@@ -365,19 +431,35 @@ class InteractionManager:
             self._swipe_through_images(device, image_container)
             self._scroll_randomly(device)
             self.logger.info("向上滚动查看评论")
+
+            random_delay(1, 3)
             # 执行互动操作
-            self.do_like(device, image_container, config)
+            if self.do_like(device, image_container, config):
+                random_delay(2, 5)
                         #
                         # 浏览完图片后，向上滚动查看评论
-            random_delay(2, 5)
-            self.do_collect(device, config)
+            
+            if self.do_collect(device, config):
+                random_delay(2, 5)
             # 执行评论
             interaction_cfg = config.get('interaction', {})
             comment_templates = interaction_cfg.get('comment_templates', [])
             if comment_templates:
-                self.do_comment(device, comment_templates, config)
+                if self.do_comment(device, comment_templates, config):
+                    random_delay(2, 5)
             
-            random_delay(2, 5)
+            # 计算停留时间
+            elapsed_time = time.time() - start_time
+            self.logger.info(f"在帖子内停留时间: {elapsed_time:.2f}秒")
+            
+            # 如果停留时间超过40秒，有一定概率访问用户主页
+            if elapsed_time > 40:
+                visit_homepage_prob = config.get('interaction', {}).get('visit_homepage_prob', 30.0)
+                if random.random() < visit_homepage_prob / 100.0:
+                    self.logger.info(f"停留时间超过40秒，触发访问用户主页概率 ({visit_homepage_prob:.2f}%)")
+                    self._visit_user_homepage(device)
+            
+            random_delay(1, 3)
             return True
         except Exception as e:
             self.logger.error(f"浏览图片笔记失败: {e}")

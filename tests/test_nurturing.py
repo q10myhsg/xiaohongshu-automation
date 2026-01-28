@@ -13,7 +13,7 @@ from xhs_nurturing.device_manager import DeviceManager
 from xhs_nurturing.config_manager import ConfigManager
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class TestNurturingManager(unittest.TestCase):

@@ -107,6 +107,8 @@ class NurturingManager:
             
             # 随机选择关键词
             keywords = config.get('keywords', [])
+            # 随机打乱关键词顺序，增加行为多样性
+            random.shuffle(keywords)
             if not keywords:
                 self.logger.warning("关键词列表为空")
                 return
@@ -125,7 +127,7 @@ class NurturingManager:
                 # 3. 点击搜索
                 # 4. 输入关键词
                 # 5. 搜索关键词并浏览帖子
-                self.browse_manager.search_and_browse(
+                keyword_visited = self.browse_manager.search_and_browse(
                     device, 
                     keyword, 
                     config, 
@@ -133,12 +135,17 @@ class NurturingManager:
                 )
                 
                 # 更新状态
-                visited = self.device_manager.device_status(device_id).get('visited', 0)
+                current_visited = self.device_manager.device_status(device_id).get('visited', 0)
+                new_visited = current_visited + (keyword_visited if isinstance(keyword_visited, int) else 0)
                 remain_time = int((total_time - (time.time() - t0)) / 60)
-                self.device_manager.update_device_status(device_id, remain_time=max(0, remain_time))
+                self.device_manager.update_device_status(
+                    device_id, 
+                    visited=new_visited,
+                    remain_time=max(0, remain_time)
+                )
                 
                 # 长随机间隔（避免频繁操作）
-                wait_time = random.randint(30, 60)
+                wait_time = random.randint(15, 30)
                 self.logger.info(f"等待 {wait_time} 秒后继续 - 设备: {device_id}")
                 time.sleep(wait_time)
             

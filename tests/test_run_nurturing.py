@@ -17,7 +17,7 @@ from xhs_nurturing.nurturing_manager import NurturingManager
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def test_run_nurturing():
     logger.info("开始测试养号核心功能的实际运行")
     
     # 初始化养号管理器
-    nurturing_manager = NurturingManager()
+    nurturing_manager = NurturingManager() 
     
     # 获取设备列表
     devices = nurturing_manager.get_all_devices()
@@ -76,7 +76,7 @@ def test_run_nurturing():
     
     # 监控养号状态
     try:
-        for i in range(100):  # 监控30秒
+        for i in range(1000):  # 监控30秒
             time.sleep(20)
             status = nurturing_manager.get_device_status(device_id)
             if i % 5 == 0:  # 每5秒打印一次状态
