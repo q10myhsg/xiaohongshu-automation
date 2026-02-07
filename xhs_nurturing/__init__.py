@@ -15,7 +15,7 @@ from .config_manager import ConfigManager
 from .interaction_manager import InteractionManager
 from .browse_manager import BrowseManager
 from .nurturing_manager import NurturingManager
-from .xhs_parser import XhsParser
+
 from .utils import random_delay, get_screen_size
 
 __all__ = [
@@ -24,7 +24,6 @@ __all__ = [
     "InteractionManager",
     "BrowseManager",
     "NurturingManager",
-    "XhsParser",
     "random_delay",
     "get_screen_size"
 ]

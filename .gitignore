@@ -84,3 +84,7 @@ local_settings.py
 .coverage
 .coverage.*
 .pytest_cache/
+
+
+# images
+xhs_images/
