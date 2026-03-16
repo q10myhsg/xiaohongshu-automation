@@ -279,13 +279,18 @@ class InteractionManager:
             self.logger.error(f"提取图片数量失败: {e}")
             return 1
     
-    def _swipe_through_images(self, device, image_container):
+    def _swipe_through_images(self, device, image_container, config=None):
         """
         滑动浏览图片
         :param device: 设备实例
         :param image_container: 图片容器
+        :param config: 配置字典
         """
         try:
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+            
             # 提取图片数量
             total_images = self._extract_image_count(image_container)
             # 确保total_images是整数
@@ -315,6 +320,9 @@ class InteractionManager:
                     
                     i = 0
                     while i < num_images_to_view:
+                        # 检查是否需要停止
+                        # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+                        pass
                         # 20%的概率向左滑动（查看上一张）
                         if random.random() < 0.1 and i > 0:
                             # 从左向右滑动（查看上一张）
@@ -323,7 +331,9 @@ class InteractionManager:
                             y = image_bounds['top'] + image_height * random.uniform(0.4, 0.6)
                             device.swipe(start_x, y, end_x, y, duration=0.1)
                             self.logger.info(f"向右滑动浏览第{i+1}张图片")
-                            random_delay(2, 7)
+                            # 从配置中读取滑动间隔
+                            slide_interval = config.get('visit_control', {}).get('slide_interval', [3, 5]) if config else [3, 5]
+                            random_delay(slide_interval[0], slide_interval[1])
                             i -= 1
                         else:
                             # 从右向左滑动（查看下一张），使用图片容器的边界信息
@@ -332,7 +342,9 @@ class InteractionManager:
                             y = image_bounds['top'] + image_height * random.uniform(0.4, 0.6)
                             device.swipe(start_x, y, end_x, y, duration=0.1)
                             self.logger.info(f"向左滑动浏览第{i+2}张图片")
-                            random_delay(2, 7)
+                            # 从配置中读取滑动间隔
+                            slide_interval = config.get('visit_control', {}).get('slide_interval', [3, 5]) if config else [3, 5]
+                            random_delay(slide_interval[0], slide_interval[1])
                             i += 1
                 else:
                     self.logger.warning(f"滑动范围无效: min={min_swipe}, max={max_swipe}")
@@ -417,6 +429,10 @@ class InteractionManager:
         """
         import time
         try:
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             # 记录开始时间
             start_time = time.time()
             
@@ -427,26 +443,53 @@ class InteractionManager:
                 random_delay(0.1, 0.5)
                 return False
 
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             # 滑动浏览图片
-            self._swipe_through_images(device, image_container)
+            self._swipe_through_images(device, image_container, config)
+            
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             self._scroll_randomly(device)
             self.logger.info("向上滚动查看评论")
 
             random_delay(1, 3)
+            
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             # 执行互动操作
             if self.do_like(device, image_container, config):
                 random_delay(2, 5)
                         #
                         # 浏览完图片后，向上滚动查看评论
             
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             if self.do_collect(device, config):
                 random_delay(2, 5)
+                
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
+                
             # 执行评论
             interaction_cfg = config.get('interaction', {})
             comment_templates = interaction_cfg.get('comment_templates', [])
             if comment_templates:
                 if self.do_comment(device, comment_templates, config):
                     random_delay(2, 5)
+            
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
             
             # 计算停留时间
             elapsed_time = time.time() - start_time
@@ -456,8 +499,16 @@ class InteractionManager:
             if elapsed_time > 40:
                 visit_homepage_prob = config.get('interaction', {}).get('visit_homepage_prob', 30.0)
                 if random.random() < visit_homepage_prob / 100.0:
+                    # 检查是否需要停止
+                    # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+                    pass
+                        
                     self.logger.info(f"停留时间超过40秒，触发访问用户主页概率 ({visit_homepage_prob:.2f}%)")
                     self._visit_user_homepage(device)
+            
+            # 检查是否需要停止
+            # 由于现在通过杀死线程来停止养号，这里不再需要停止检查
+            pass
             
             random_delay(1, 3)
             return True

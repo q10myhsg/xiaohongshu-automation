@@ -65,7 +65,8 @@ class ConfigManager:
             "keywords": ["科技资讯", "旅行攻略", "美食教程"],
             "duration_minutes": 20,
             "post_visit_ratio": 50,
-            "max_posts_per_run": 10,
+            "posts_per_keyword": 10,
+            "discovery_browse_time": 10,
             "visit_control": {
                 "filter_image_text": True,
                 "duration_range": [25, 45],

@@ -74,12 +74,13 @@ class BrowseManager:
             self.logger.error(f"启动小红书失败: {e}")
             return False
     
-    def browse_discovery_page(self, device: u2.Device, browse_time: int, config: dict = None) -> bool:
+    def browse_discovery_page(self, device: u2.Device, browse_time: int, config: dict = None, stop_check_callback=None) -> bool:
         """
         在发现页浏览
         :param device: 设备实例
         :param browse_time: 浏览时间（秒）
         :param config: 配置字典
+        :param stop_check_callback: 停止检查回调函数
         :return: 是否成功
         """
         try:
@@ -92,10 +93,20 @@ class BrowseManager:
             start_time = time.time()
             
             while time.time() - start_time < browse_time:
+                # 检查是否需要停止
+                if stop_check_callback and stop_check_callback():
+                    self.logger.info("收到停止请求，终止发现页浏览")
+                    return True
+                
                 random_delay()
                 # 随机滚动
                 scroll_randomly(device)
                 random_delay(2, 4)
+                
+                # 检查是否需要停止
+                if stop_check_callback and stop_check_callback():
+                    self.logger.info("收到停止请求，终止发现页浏览")
+                    return True
             
             self.logger.info("发现页浏览完成")
             return True
@@ -103,45 +114,91 @@ class BrowseManager:
             self.logger.error(f"发现页浏览失败: {e}")
             return False
     
-    def search_and_browse(self, device: u2.Device, keyword: str, config: dict, max_posts: int = 10) -> bool:
+    def search_and_browse(self, device: u2.Device, keyword: str, config: dict, max_posts: int = 10, device_id: str = None, stop_check_callback=None, count_callback=None) -> int:
         """
         搜索关键词并浏览相关内容
         :param device: 设备实例
         :param keyword: 搜索关键词
         :param config: 配置字典
         :param max_posts: 每个关键词浏览的帖子数量
-        :return: 是否成功
+        :param device_id: 设备ID
+        :param stop_check_callback: 停止检查回调函数
+        :param count_callback: 计数回调函数，每次浏览完成一个笔记时调用
+        :return: 访问帖子的数量
         """
         try:
+            # 检查设备是否在线
+            if not device:
+                self.logger.error("设备未连接")
+                return 0
+            
             self.logger.info(f"搜索关键词: {keyword}, 计划浏览 {max_posts} 个帖子")
+            
+            # 检查是否需要停止
+            if stop_check_callback and stop_check_callback():
+                self.logger.info("收到停止请求，终止搜索浏览")
+                return 0
             
             # 1. 打开搜索框
             if not self._open_search(device):
-                return False
+                return 0
+            
+            # 检查是否需要停止
+            if stop_check_callback and stop_check_callback():
+                self.logger.info("收到停止请求，终止搜索浏览")
+                return 0
             
             # 2. 输入关键词
             if not self._input_search_keyword(device, keyword):
-                return False
+                return 0
+            
+            # 检查是否需要停止
+            if stop_check_callback and stop_check_callback():
+                self.logger.info("收到停止请求，终止搜索浏览")
+                return 0
             
             # 3. 执行搜索
             if not self._execute_search(device):
-                return False
+                return 0
+            
+            # 检查是否需要停止
+            if stop_check_callback and stop_check_callback():
+                self.logger.info("收到停止请求，终止搜索浏览")
+                return 0
             
             # 4. 浏览搜索结果
             visited_count = 0
             scroll_count = 0
-            max_scrolls = max_posts * 2  # 确保能找到足够的帖子
+            # max_scrolls = max_posts * 2  # 确保能找到足够的帖子
             
-            while visited_count < max_posts and scroll_count < max_scrolls:
+            while visited_count < max_posts :                # 检查是否需要停止
+                if stop_check_callback and stop_check_callback():
+                    self.logger.info("收到停止请求，终止搜索浏览")
+                    return visited_count
+                
                 # 访问帖子
                 if self._visit_post(device, config):
+                        
                         # 访问帖子详情
                         duration_range = config.get('visit_control', {}).get('duration_range', [25, 45])
-                        self._visit_post_detail(device, duration_range, config)
+                        self._visit_post_detail(device, duration_range, config, stop_check_callback)
                         visited_count += 1
+                        # 如果提供了计数回调函数，调用它通知NurturingManager增加访问计数
+                        if count_callback:
+                            count_callback()
+                        # 如果提供了设备ID，通知NurturingManager增加访问计数
+                        if device_id:
+                            # 这里需要调用NurturingManager的increment_visited_count方法
+                            # 由于BrowseManager没有直接引用NurturingManager，这里需要通过其他方式实现
+                            pass
                         # 返回列表
                         device.press("back")
                         random_delay(2, 3)
+                
+                # 检查是否需要停止
+                if stop_check_callback and stop_check_callback():
+                    self.logger.info("收到停止请求，终止搜索浏览")
+                    return visited_count
                 
                 # 滑动到下一个帖子
                 scroll_randomly(device)
@@ -152,7 +209,7 @@ class BrowseManager:
             return visited_count
         except Exception as e:
             self.logger.error(f"搜索浏览失败: {e}")
-            return False
+            return 0
     
     def _open_search(self, device: u2.Device) -> bool:
         """
@@ -169,14 +226,14 @@ class BrowseManager:
                 # device(text="搜索", className="android.widget.Button", clickable=True),
                 # device(text="搜索", clickable=True)
             ]
-            
             for selector in search_selectors:
                 if selector.exists:
                     if safe_click(device, selector):
                         random_delay(1, 2)
                         return True
             search_selectors2 = [
-                device(text="搜索", className="android.widget.TextView", clickable=True)
+                device(text="搜索", className="android.widget.TextView", clickable=True),
+                device(text="搜索", className="android.widget.Button", clickable=True)
             ]
 
             for selector in search_selectors2:
@@ -342,6 +399,8 @@ class BrowseManager:
             self.logger.error(f"计算有效点击区域失败: {e}")
             return None
     
+
+    
     def _visit_post(self, device: u2.Device, config: dict) -> bool:
         """
         访问帖子
@@ -383,6 +442,7 @@ class BrowseManager:
                                     if bounds:
                                         # 先判断有效点击区域，只把有效的note放进列表
                                         effective_bounds = self._calculate_bounds_intersection(device, bounds)
+                                       
                                         if effective_bounds:
                                             note_list.append(note)
                                             self.logger.debug(f"添加有效笔记 {i} 到列表")
@@ -426,14 +486,27 @@ class BrowseManager:
             self.logger.error(f"访问帖子失败: {e}")
             return False
     
-    def _visit_post_detail(self, device: u2.Device, duration_range: List[int], config: dict):
+    def _visit_post_detail(self, device: u2.Device, duration_range: List[int], config: dict, stop_check_callback=None):
         """
         访问帖子详情
         :param device: 设备实例
-        :param duration_range: 浏览时长范围
+        :param duration_range: 浏览时间范围
         :param config: 配置字典
+        :param stop_check_callback: 停止检查回调函数
         """
         try:
+            # 检查是否需要停止
+            if stop_check_callback and stop_check_callback():
+                self.logger.info("收到停止请求，终止访问帖子详情")
+                return
+            
+            # 检查设备是否在线
+            try:
+                device.info
+            except Exception as e:
+                self.logger.error(f"设备离线: {e}")
+                return
+                
             # 随机访问时长
             visit_duration = random.randint(duration_range[0], duration_range[1])
             self.logger.info(f"访问帖子详情，预计停留 {visit_duration} 秒")

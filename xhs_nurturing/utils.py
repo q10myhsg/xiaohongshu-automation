@@ -180,8 +180,9 @@ def validate_keywords(keywords: list) -> bool:
     if not isinstance(keywords, list):
         return False
     
+    # 允许空列表通过验证（清除全部关键词的情况）
     if len(keywords) == 0:
-        return False
+        return True
     
     for keyword in keywords:
         if not isinstance(keyword, str) or not keyword.strip():

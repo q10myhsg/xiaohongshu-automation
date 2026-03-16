@@ -80,6 +80,61 @@ def api_device_switch():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+@app.route("/api/device/alias", methods=["POST", "GET"])
+def api_device_alias():
+    """设置或获取设备别名"""
+    try:
+        if request.method == "POST":
+            # 设置设备别名
+            device_id = request.json.get("device_id")
+            alias = request.json.get("alias")
+            if not device_id:
+                return jsonify({"success": False, "error": "设备ID不能为空"})
+            
+            nurturing_manager.device_manager.set_device_alias(device_id, alias)
+            return jsonify({"success": True, "message": f"已为设备 {device_id} 设置别名: {alias}"})
+        else:
+            # 获取设备别名
+            device_id = request.args.get("device_id")
+            if not device_id:
+                return jsonify({"success": False, "error": "设备ID不能为空"})
+            
+            alias = nurturing_manager.device_manager.get_device_alias(device_id)
+            return jsonify({"success": True, "data": {"device_id": device_id, "alias": alias}})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/device/alias/<device_id>", methods=["DELETE"])
+def api_remove_device_alias(device_id):
+    """移除设备别名"""
+    try:
+        nurturing_manager.device_manager.remove_device_alias(device_id)
+        return jsonify({"success": True, "message": f"已移除设备 {device_id} 的别名"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/device/<device_id>", methods=["DELETE"])
+def api_delete_device(device_id):
+    """删除设备"""
+    try:
+        # 检查设备是否离线
+        devices = nurturing_manager.get_all_devices()
+        device = next((d for d in devices if d['id'] == device_id), None)
+        if not device:
+            return jsonify({"success": False, "error": "设备不存在"})
+        
+        if device['status'] == 'online':
+            return jsonify({"success": False, "error": "只能删除离线设备"})
+        
+        # 从配置中删除设备
+        nurturing_manager.config_manager.remove_device_config(device_id)
+        # 移除设备别名
+        nurturing_manager.device_manager.remove_device_alias(device_id)
+        
+        return jsonify({"success": True, "message": f"设备 {device_id} 已删除"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route("/api/config/<device_id>", methods=["GET"])
 def api_get_config(device_id):
     """获取设备配置"""
@@ -155,8 +210,28 @@ def api_stop_yanghao():
 def api_status(device_id):
     """获取养号状态"""
     try:
-        status = nurturing_manager.get_device_status(device_id)
+        status = nurturing_manager.get_nurturing_status(device_id)
         return jsonify({"success": True, "data": status})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/yanghao/close-xhs/<device_id>")
+def api_close_xhs(device_id):
+    """关闭小红书"""
+    try:
+        # 调用NurturingManager中的方法关闭小红书
+        device = nurturing_manager.device_manager.get_device(device_id)
+        if not device:
+            # 尝试连接设备
+            if not nurturing_manager.device_manager.connect_device(device_id):
+                return jsonify({"success": False, "error": "设备未连接"})
+            device = nurturing_manager.device_manager.get_device(device_id)
+        
+        if device:
+            device.app_stop("com.xingin.xhs")
+            return jsonify({"success": True, "message": "小红书已关闭"})
+        else:
+            return jsonify({"success": False, "error": "设备未连接"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -191,4 +266,4 @@ if __name__ == '__main__':
         with open("config/config.json", "w", encoding="utf-8") as f:
             json.dump({}, f, indent=2, ensure_ascii=False)
     
-    app.run(host="0.0.0.0", port=5001, debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=5002, debug=True, threaded=True)

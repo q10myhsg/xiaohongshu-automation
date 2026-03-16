@@ -105,6 +105,36 @@ class ConfigManager:
         self.save_config(config)
         self.logger.info(f"已更新设备 {device_id} 的配置")
     
+    def remove_device_config(self, device_id: str):
+        """
+        移除设备配置
+        :param device_id: 设备ID
+        """
+        try:
+            config = self.load_config()
+            if device_id in config:
+                del config[device_id]
+                self.save_config(config)
+                self.logger.info(f"已删除设备 {device_id} 的配置")
+        except Exception as e:
+            self.logger.error(f"移除设备配置失败: {e}")
+            raise
+    
+    def remove_device_config(self, device_id: str):
+        """
+        移除设备配置
+        :param device_id: 设备ID
+        """
+        try:
+            config = self.load_config()
+            if device_id in config:
+                del config[device_id]
+                self.save_config(config)
+                self.logger.info(f"已删除设备 {device_id} 的配置")
+        except Exception as e:
+            self.logger.error(f"移除设备配置失败: {e}")
+            raise
+    
     def get_keywords(self, device_id: str) -> list:
         """
         获取设备关键词列表
@@ -156,12 +186,11 @@ class ConfigManager:
             "keywords": ["科技资讯", "旅行攻略", "美食教程"],
             "duration_minutes": 20,
             "post_visit_ratio": 50,
-            "max_posts_per_run": 10,
+            "posts_per_keyword": 10,
+            "discovery_browse_time": 10,
             "visit_control": {
-                "filter_image_text": True,
                 "duration_range": [25, 45],
-                "slide_interval": [3, 5],
-                "slide_distance": "single_image"
+                "slide_interval": [3, 5]
             },
             "interaction": {
                 "like_prob": 15,
@@ -199,7 +228,7 @@ class ConfigManager:
         """
         try:
             # 检查必要字段
-            required_fields = ["keywords", "duration_minutes", "post_visit_ratio", "max_posts_per_run"]
+            required_fields = ["keywords", "duration_minutes", "post_visit_ratio", "posts_per_keyword", "discovery_browse_time"]
             for field in required_fields:
                 if field not in config:
                     self.logger.warning(f"配置缺少必要字段: {field}")
@@ -219,8 +248,12 @@ class ConfigManager:
                 self.logger.warning("帖子访问比例必须在0-100之间")
                 return False
             
-            if config["max_posts_per_run"] <= 0:
-                self.logger.warning("最大访问帖子数必须大于0")
+            if config["posts_per_keyword"] <= 0:
+                self.logger.warning("每个关键词访问帖子数必须大于0")
+                return False
+            
+            if config["discovery_browse_time"] <= 0:
+                self.logger.warning("发现页浏览时间必须大于0")
                 return False
             
             return True

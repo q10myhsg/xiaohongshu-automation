@@ -3,16 +3,23 @@ import subprocess
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
+from .config_manager import ConfigManager
 
 class DeviceManager:
     """设备管理器"""
     
     def __init__(self):
-        """初始化设备管理器"""
+        """
+        初始化设备管理器
+        """
         self._devices_pool: Dict[str, u2.Device] = {}
         self._status: Dict[str, dict] = {}
         self._stop_flag: Dict[str, bool] = {}
+        self._device_aliases: Dict[str, str] = {}  # 存储设备别名
+        self.config_manager = ConfigManager()  # 配置管理器
         self.logger = logging.getLogger(__name__)
+        # 从配置文件加载设备别名
+        self._load_device_aliases()
     
     def get_devices(self) -> List[Dict]:
         """
@@ -44,16 +51,28 @@ class DeviceManager:
                             d = u2.connect(device_id)
                             info = d.info
                             self.logger.info(f"设备信息: {info}")
+                            # 检查是否有设备别名
+                            alias = self.get_device_alias(device_id)
+                            if alias:
+                                device_name = alias
+                            else:
+                                device_name = f"{info.get('model', 'Unknown')}({device_id})"
                             device_list.append({
                                 "id": device_id,
-                                "name": f"{info.get('model', 'Unknown')}({device_id})",
+                                "name": device_name,
                                 "status": "online"
                             })
                         except Exception as e:
                             self.logger.error(f"连接设备失败: {e}")
+                            # 检查是否有设备别名
+                            alias = self.get_device_alias(device_id)
+                            if alias:
+                                device_name = alias
+                            else:
+                                device_name = device_id
                             device_list.append({
                                 "id": device_id,
-                                "name": device_id,
+                                "name": device_name,
                                 "status": "offline"
                             })
             
@@ -97,6 +116,28 @@ class DeviceManager:
         :return: 设备连接实例，若未连接返回None
         """
         return self._devices_pool.get(device_id)
+    
+    def is_device_online(self, device_id: str) -> bool:
+        """
+        检查设备是否在线
+        :param device_id: 设备ID
+        :return: 设备是否在线
+        """
+        device = self._devices_pool.get(device_id)
+        if not device:
+            return False
+        try:
+            # 尝试获取设备信息，如果成功则设备在线
+            device.info
+            return True
+        except Exception as e:
+            self.logger.error(f"检查设备在线状态失败: {e}")
+            # 设备离线，从设备池中移除
+            if device_id in self._devices_pool:
+                del self._devices_pool[device_id]
+            # 更新设备状态为离线
+            self.update_device_status(device_id, is_running=False, remain_time=0, current_keyword="")
+            return False
     
     def device_status(self, device_id: str) -> dict:
         """
@@ -169,3 +210,55 @@ class DeviceManager:
         :return: 是否已连接
         """
         return device_id in self._devices_pool
+    
+    def _load_device_aliases(self):
+        """
+        从配置文件加载设备别名
+        """
+        try:
+            config = self.config_manager.load_config()
+            if "device_aliases" in config:
+                self._device_aliases = config["device_aliases"]
+                self.logger.info("已从配置文件加载设备别名")
+        except Exception as e:
+            self.logger.error(f"加载设备别名失败: {e}")
+    
+    def _save_device_aliases(self):
+        """
+        保存设备别名到配置文件
+        """
+        try:
+            config = self.config_manager.load_config()
+            config["device_aliases"] = self._device_aliases
+            self.config_manager.save_config(config)
+            self.logger.info("已保存设备别名到配置文件")
+        except Exception as e:
+            self.logger.error(f"保存设备别名失败: {e}")
+    
+    def set_device_alias(self, device_id: str, alias: str):
+        """
+        设置设备别名
+        :param device_id: 设备ID
+        :param alias: 设备别名
+        """
+        self._device_aliases[device_id] = alias
+        self._save_device_aliases()
+        self.logger.info(f"已为设备 {device_id} 设置别名: {alias}")
+    
+    def get_device_alias(self, device_id: str) -> str:
+        """
+        获取设备别名
+        :param device_id: 设备ID
+        :return: 设备别名，若未设置返回None
+        """
+        return self._device_aliases.get(device_id)
+    
+    def remove_device_alias(self, device_id: str):
+        """
+        移除设备别名
+        :param device_id: 设备ID
+        """
+        if device_id in self._device_aliases:
+            del self._device_aliases[device_id]
+            self._save_device_aliases()
+            self.logger.info(f"已移除设备 {device_id} 的别名")
